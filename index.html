@@ -76,16 +76,16 @@ progress{width:100%;height:18px}
 (function(){
   var cv=document.getElementById('dinoCanvas');
   var ctx=cv.getContext('2d');
-  var W=700, H=200, GROUND=160;
-  var dino={x:50, y:GROUND, w:44, h:44, vy:0, jumping:false, leg:0};
-  var obstacles=[], clouds=[], frame=0, score=0, best=0, state='ready', speed=6, overAt=0;
+  var W=700, H=200, GROUND=140;
+  var dino={x:50, y:GROUND, w:52, h:52, vy:0, jumping:false, leg:0};
+  var obstacles=[], clouds=[], frame=0, score=0, best=0, state='ready', speed=4, overAt=0;
   try{ best=parseInt(localStorage.getItem('dinoBest')||'0')||0; }catch(e){}
   function drawScore(){
     document.getElementById('dinoScore').textContent='分数：'+score;
     document.getElementById('dinoBest').textContent='最高：'+best;
   }
   function reset(){
-    obstacles=[]; clouds=[]; frame=0; score=0; speed=6;
+    obstacles=[]; clouds=[]; frame=0; score=0; speed=4;
     dino.y=GROUND; dino.vy=0; dino.jumping=false;
     drawScore();
   }
@@ -95,7 +95,7 @@ progress{width:100%;height:18px}
       if(Date.now()-overAt>300){ state='run'; reset(); }
       return;
     }
-    if(!dino.jumping){ dino.vy=-13; dino.jumping=true; }
+    if(!dino.jumping){ dino.vy=-12.5; dino.jumping=true; }
   }
   window.dinoRestart=function(){ state='run'; reset(); };
   cv.addEventListener('click', function(e){ e.preventDefault(); jump(); });
@@ -115,21 +115,21 @@ progress{width:100%;height:18px}
     requestAnimationFrame(loop);
     ctx.clearRect(0,0,W,H);
     ctx.fillStyle='#999';
-    ctx.fillRect(0,GROUND+44,W,2);
+    ctx.fillRect(0,GROUND+52,W,2);
     if(state==='run'){
-      frame++; score++; speed=6+Math.floor(score/500);
+      frame++; score++; speed=Math.min(9, 4+score/1200);
       if(frame%90===0) clouds.push({x:W, y:20+Math.random()*60});
-      if(obstacles.length===0 || W-obstacles[obstacles.length-1].x>140+Math.random()*120) spawnObstacle();
+      if(obstacles.length===0 || W-obstacles[obstacles.length-1].x>340+Math.random()*160) spawnObstacle();
       dino.leg=(frame%10<5)?0:1;
       if(dino.jumping){
-        dino.vy+=0.7; dino.y+=dino.vy;
+        dino.vy+=0.6; dino.y+=dino.vy;
         if(dino.y>=GROUND){ dino.y=GROUND; dino.jumping=false; dino.vy=0; }
       }
       obstacles.forEach(function(o){ o.x-=speed; });
       obstacles=obstacles.filter(function(o){ return o.x+o.w>0; });
       clouds.forEach(function(c){ c.x-=1; });
       var hit=obstacles.some(function(o){
-        return dino.x+6<o.x+o.w && dino.x+dino.w-6>o.x && dino.y+6<GROUND+44 && dino.y+dino.h-2>GROUND+44-o.h;
+        return dino.x+12<o.x+o.w-4 && dino.x+dino.w-12>o.x+4 && dino.y+10<GROUND+52 && dino.y+dino.h-2>GROUND+52-o.h;
       });
       if(hit){
         state='over'; overAt=Date.now();
@@ -141,22 +141,43 @@ progress{width:100%;height:18px}
       ctx.fillStyle='#ddd';
       ctx.fillRect(c.x,c.y,40,10); ctx.fillRect(c.x+10,c.y-8,24,10);
     });
-    ctx.fillStyle='#555';
     var dy=dino.y;
-    ctx.fillRect(dino.x,dy,44,44);
-    ctx.fillRect(dino.x+32,dy-12,28,20);
-    ctx.fillRect(dino.x+44,dy+8,16,8);
-    ctx.fillStyle='#fff'; ctx.fillRect(dino.x+48,dy-6,6,6);
+    ctx.fillStyle='#555';
+    ctx.beginPath();
+    ctx.moveTo(dino.x-20, dy+14);
+    ctx.lineTo(dino.x+2, dy+6);
+    ctx.lineTo(dino.x+10, dy+6);
+    ctx.lineTo(dino.x+10, dy-8);
+    ctx.lineTo(dino.x+34, dy-8);
+    ctx.lineTo(dino.x+34, dy-14);
+    ctx.lineTo(dino.x+58, dy-14);
+    ctx.lineTo(dino.x+58, dy+2);
+    ctx.lineTo(dino.x+48, dy+2);
+    ctx.lineTo(dino.x+48, dy+8);
+    ctx.lineTo(dino.x+34, dy+8);
+    ctx.lineTo(dino.x+34, dy+40);
+    ctx.lineTo(dino.x+2, dy+40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle='#fff'; ctx.fillRect(dino.x+46, dy-8, 6, 6);
+    ctx.fillStyle='#222'; ctx.fillRect(dino.x+49, dy-8, 3, 3);
     ctx.fillStyle='#555';
     var legOff=dino.jumping?0:(dino.leg?8:0);
-    ctx.fillRect(dino.x+8,dy+44,8,10+legOff);
-    ctx.fillRect(dino.x+26,dy+44,8,10-legOff);
+    ctx.fillRect(dino.x+12, dy+40, 9, 12+legOff);
+    ctx.fillRect(dino.x+12, dy+50+legOff, 14, 5);
+    ctx.fillRect(dino.x+30, dy+40, 9, 12-legOff);
+    ctx.fillRect(dino.x+30, dy+50-legOff, 14, 5);
     ctx.fillStyle='#2e7d32';
     obstacles.forEach(function(o){
-      var oy=GROUND+44-o.h;
-      ctx.fillRect(o.x,oy,o.w,o.h);
-      ctx.fillRect(o.x-6,oy+10,6,8);
-      ctx.fillRect(o.x+o.w,oy+14,6,8);
+      var oy=GROUND+52-o.h;
+      ctx.beginPath();
+      ctx.arc(o.x+o.w/2, oy+4, o.w/2, Math.PI, 0);
+      ctx.fillRect(o.x, oy+4, o.w, o.h-4);
+      ctx.fillRect(o.x-6, oy+o.h*0.35, 6, 8);
+      ctx.fillRect(o.x-6, oy+o.h*0.35, 12, 6);
+      ctx.fillRect(o.x+o.w, oy+o.h*0.5, 6, 8);
+      ctx.fillRect(o.x+o.w-6, oy+o.h*0.5, 12, 6);
+      ctx.fill();
     });
     ctx.fillStyle='#666'; ctx.font='16px sans-serif';
     if(state==='ready') ctx.fillText('点一下画面或按空格开始', 250, 90);
