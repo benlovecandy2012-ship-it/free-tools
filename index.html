@@ -8,12 +8,19 @@
 body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:760px;margin:0 auto;padding:24px 16px;color:#222;line-height:1.7}
 h1{font-size:26px} h2{font-size:20px;margin-top:36px;border-top:1px solid #ddd;padding-top:16px}
 .card{border:1px solid #ddd;border-radius:12px;padding:16px;margin:16px 0}
-label{margin-right:12px} input{width:70px;padding:6px}
+label{margin-right:12px} input{padding:6px}
 button{padding:8px 16px;border:0;border-radius:8px;background:#0969da;color:#fff;cursor:pointer;margin:4px 4px 4px 0}
-button:active{opacity:.8}
-textarea{width:100%;min-height:140px;box-sizing:border-box;padding:10px;font-size:14px}
+button:active{opacity:.8} button:disabled{background:#999;cursor:not-allowed}
+textarea{width:100%;min-height:110px;box-sizing:border-box;padding:10px;font-size:13px}
 table{border-collapse:collapse;margin-top:12px} td,th{border:1px solid #999;padding:6px 12px}
 .note{color:#666;font-size:14px}
+#rows,#cols{width:70px}
+#p2pFile{width:100%}
+.step{border-left:4px solid #0969da;padding-left:12px;margin:16px 0}
+.status{font-weight:bold;color:#0969da}
+progress{width:100%;height:18px}
+.dl a{display:block;margin:6px 0}
+code{background:#f0f0f0;padding:2px 6px;border-radius:4px}
 </style>
 </head>
 <body>
@@ -33,8 +40,38 @@ table{border-collapse:collapse;margin-top:12px} td,th{border:1px solid #999;padd
 </div>
 
 <div class="card">
-<h2>点对点传输 · 说明</h2>
-<p>点对点传输（WebRTC）不需要服务器中转文件：两个人打开同一个工具页，交换一串握手码，就能直接传文件。完整版正在加入本站，先记住原理：<b>页面是公开的，文件是直连的</b>。</p>
+<h2>点对点传输</h2>
+<p>不需要服务器中转文件：两个人打开本站这个页面，交换两串握手码，就能直接传文件。<b>页面是公开的，文件是直连的</b>——文件不经过本站服务器，也不上传到任何网盘。</p>
+<p class="note">原理：本站只是个静态页面，没有自己的信令服务器，所以用“握手码”手工传信令：发送方生成连接码 → 用微信/QQ/短信发给接收方 → 接收方生成回执码发回来 → 发送方填入回执码 → 直连建立。两个页面在传输全程都要保持打开。部分严格网络下直连可能失败，那是 NAT 穿透问题，不是文件损坏。</p>
+
+<div class="step">
+<h3>第一步：发送方</h3>
+<p><input id="p2pFile" type="file" multiple></p>
+<p id="fileInfo" class="note">请选择要发送的文件（可多选，依次发送）。</p>
+<button id="btnOffer" onclick="makeOffer()">1. 生成连接码</button>
+<textarea id="offerCode" readonly placeholder="连接码会出现在这里，复制发给接收方"></textarea>
+<button onclick="copyText('offerCode')">复制连接码</button>
+</div>
+
+<div class="step">
+<h3>第二步：接收方</h3>
+<textarea id="remoteOffer" placeholder="把发送方的连接码粘贴到这里"></textarea>
+<button id="btnAnswer" onclick="makeAnswer()">2. 生成回执码</button>
+<textarea id="answerCode" readonly placeholder="回执码会出现在这里，复制发给发送方"></textarea>
+<button onclick="copyText('answerCode')">复制回执码</button>
+</div>
+
+<div class="step">
+<h3>第三步：发送方完成连接并发送</h3>
+<textarea id="remoteAnswer" placeholder="把接收方的回执码粘贴到这里"></textarea>
+<button id="btnConnect" onclick="applyAnswer()">3. 连接并发送文件</button>
+<p>状态：<span id="p2pStatus" class="status">未开始</span></p>
+<progress id="p2pProgress" value="0" max="100"></progress>
+<p id="p2pProgressText" class="note"></p>
+<div id="downloads" class="dl"></div>
+</div>
+
+<p class="note">接收方收到文件后，页面会出现下载链接，点一下就能保存到本地。建议单文件别超过 500MB：文件会在接收方浏览器内存里拼好再下载，太大容易占内存。传完请关闭页面，连接即断开。</p>
 </div>
 
 <p class="note">本站托管于 GitHub Pages，完全免费。想加新工具，告诉站长一声即可。</p>
@@ -63,6 +100,126 @@ function copyMd(){
   alert('已复制 Markdown 表格');
 }
 gen();
+
+/* ---- 点对点传输（WebRTC，手工握手码，无服务器） ---- */
+var pc=null, dc=null, filesToSend=[], recvMeta=null, recvChunks=[], recvSize=0;
+var CHUNK=16384;
+function setStatus(s){ document.getElementById('p2pStatus').textContent=s; }
+function setProgress(p,t){ document.getElementById('p2pProgress').value=p; document.getElementById('p2pProgressText').textContent=t||''; }
+function copyText(id){
+  var t=document.getElementById(id); t.select(); document.execCommand('copy');
+  alert('已复制');
+}
+function encodeSdp(sdp){ return btoa(unescape(encodeURIComponent(JSON.stringify(sdp)))); }
+function decodeSdp(code){
+  try{ return JSON.parse(decodeURIComponent(escape(atob(code.trim())))); }
+  catch(e){ alert('握手码格式不对，请重新完整复制'); throw e; }
+}
+function newPC(){
+  pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
+  return pc;
+}
+function waitIceComplete(){
+  return new Promise(function(res){
+    if(pc.iceGatheringState==='complete'){ res(); return; }
+    pc.onicecandidate=function(e){ if(!e.candidate) res(); };
+    setTimeout(res, 8000);
+  });
+}
+document.getElementById('p2pFile').addEventListener('change', function(e){
+  filesToSend=Array.prototype.slice.call(e.target.files);
+  var total=0; filesToSend.forEach(function(f){ total+=f.size; });
+  document.getElementById('fileInfo').textContent='已选 '+filesToSend.length+' 个文件，共 '+(total/1048576).toFixed(2)+' MB';
+});
+async function makeOffer(){
+  filesToSend=Array.prototype.slice.call(document.getElementById('p2pFile').files);
+  if(!filesToSend.length){ alert('请先选择文件'); return; }
+  setStatus('正在生成连接码…'); setProgress(0,'');
+  newPC();
+  dc=pc.createDataChannel('file');
+  dc.bufferedAmountLowThreshold=262144;
+  dc.onopen=function(){ setStatus('已连接，等待发送'); };
+  dc.onclose=function(){ setStatus('连接已关闭'); };
+  var offer=await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await waitIceComplete();
+  document.getElementById('offerCode').value=encodeSdp(pc.localDescription);
+  setStatus('连接码已生成，发给接收方');
+}
+async function makeAnswer(){
+  var code=document.getElementById('remoteOffer').value;
+  if(!code.trim()){ alert('请先粘贴发送方的连接码'); return; }
+  setStatus('正在生成回执码…');
+  newPC();
+  pc.ondatachannel=function(e){
+    dc=e.channel; dc.binaryType='arraybuffer';
+    dc.onmessage=onDataMessage;
+    dc.onopen=function(){ setStatus('已连接，等待接收文件'); };
+  };
+  await pc.setRemoteDescription(decodeSdp(code));
+  var answer=await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  await waitIceComplete();
+  document.getElementById('answerCode').value=encodeSdp(pc.localDescription);
+  setStatus('回执码已生成，发给发送方');
+}
+function onDataMessage(e){
+  if(typeof e.data==='string'){
+    var msg; try{ msg=JSON.parse(e.data); }catch(err){ return; }
+    if(msg.type==='meta'){
+      recvMeta=msg; recvChunks=[]; recvSize=0;
+      setStatus('正在接收：'+msg.name);
+      setProgress(0,'0 / '+(msg.size/1048576).toFixed(2)+' MB');
+    }else if(msg.type==='end' && recvMeta){
+      var blob=new Blob(recvChunks);
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');
+      a.href=url; a.download=recvMeta.name; a.textContent='⬇ 下载 '+recvMeta.name+'（'+(recvMeta.size/1048576).toFixed(2)+' MB）';
+      document.getElementById('downloads').appendChild(a);
+      setStatus('收到完成：'+recvMeta.name);
+      setProgress(100,'已完成');
+      recvMeta=null; recvChunks=[];
+    }
+    return;
+  }
+  recvChunks.push(e.data); recvSize+=e.data.byteLength;
+  if(recvMeta) setProgress(Math.floor(recvSize/recvMeta.size*100), (recvSize/1048576).toFixed(2)+' / '+(recvMeta.size/1048576).toFixed(2)+' MB');
+}
+function waitDrain(){
+  return new Promise(function(res){
+    if(dc.bufferedAmount<=262144){ res(); return; }
+    dc.onbufferedamountlow=function(){ res(); };
+  });
+}
+async function sendOneFile(file, idx, total){
+  dc.send(JSON.stringify({type:'meta', name:file.name, size:file.size, index:idx, total:total}));
+  var offset=0;
+  while(offset<file.size){
+    await waitDrain();
+    var slice=file.slice(offset, offset+CHUNK);
+    var buf=await slice.arrayBuffer();
+    dc.send(buf);
+    offset+=buf.byteLength;
+    setProgress(Math.floor(offset/file.size*100), '正在发送第 '+(idx+1)+'/'+total+' 个：'+file.name+' '+ (offset/1048576).toFixed(2)+' / '+(file.size/1048576).toFixed(2)+' MB');
+  }
+  dc.send(JSON.stringify({type:'end'}));
+}
+async function applyAnswer(){
+  var code=document.getElementById('remoteAnswer').value;
+  if(!code.trim()){ alert('请先粘贴接收方的回执码'); return; }
+  if(!pc){ alert('请先生成连接码'); return; }
+  filesToSend=Array.prototype.slice.call(document.getElementById('p2pFile').files);
+  if(!filesToSend.length){ alert('请先选择文件'); return; }
+  await pc.setRemoteDescription(decodeSdp(code));
+  setStatus('正在连接…');
+  var tries=0;
+  while(dc.readyState!=='open' && tries<100){ await new Promise(function(r){ setTimeout(r,200); }); tries++; }
+  if(dc.readyState!=='open'){ setStatus('连接失败：请检查回执码是否最新、两边页面是否都还开着'); return; }
+  setStatus('已连接，开始发送');
+  for(var i=0;i<filesToSend.length;i++){ await sendOneFile(filesToSend[i], i, filesToSend.length); }
+  setStatus('全部发送完成');
+  setProgress(100,'全部发送完成');
+}
 </script>
 </body>
 </html>
