@@ -14,7 +14,7 @@ button:active{opacity:.8} button:disabled{background:#999;cursor:not-allowed}
 textarea{width:100%;min-height:140px;box-sizing:border-box;padding:10px;font-size:14px}
 table{border-collapse:collapse;margin-top:12px} td,th{border:1px solid #999;padding:6px 12px}
 .note{color:#666;font-size:14px}
-#rows,#cols{width:70px}
+#dinoCanvas{width:100%;max-width:700px;height:auto;display:block;background:#fff;border:1px solid #ddd;border-radius:8px;cursor:pointer;touch-action:manipulation}
 .status{font-weight:bold;color:#0969da}
 progress{width:100%;height:18px}
 #roomCode{font-size:28px;letter-spacing:4px;font-weight:bold}
@@ -31,15 +31,11 @@ progress{width:100%;height:18px}
 <p>这是一个人人可访问的轻量网站：不用注册、不用登录，有网就能打开使用。所有工具都在你的浏览器里运行，不上传任何数据。</p>
 
 <div class="card">
-<h2>表格生成器</h2>
-<p class="note">输入行数和列数，点生成，得到 Markdown 表格和网页表格，点复制就能直接用。</p>
-<label>行数 <input id="rows" type="number" value="3" min="1" max="20"></label>
-<label>列数 <input id="cols" type="number" value="3" min="1" max="10"></label>
-<button onclick="gen()">生成表格</button>
-<div id="preview"></div>
-<p>Markdown：</p>
-<textarea id="md" readonly></textarea>
-<button onclick="copyMd()">复制 Markdown</button>
+<h2>🦖 小恐龙跑酷 · 等传输时打发时间</h2>
+<p class="note">玩法跟谷歌断网小恐龙一样：<b>点一下画面、点鼠标、按空格或按 ↑ 都是跳</b>，躲开仙人掌，跑得越远速度越快。传文件的时候挂着玩，互不影响；撞上就结束，再点一下重开。</p>
+<canvas id="dinoCanvas" width="700" height="200"></canvas>
+<p><span id="dinoScore" class="status">分数：0</span>　<span id="dinoBest" class="note"></span>　<button onclick="dinoRestart()">重新开始</button></p>
+<p class="note">电脑：空格 / ↑ / 鼠标点击；手机：点画面。</p>
 </div>
 
 <div class="card">
@@ -76,29 +72,99 @@ progress{width:100%;height:18px}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
-function gen(){
-  var r=parseInt(document.getElementById('rows').value)||3;
-  var c=parseInt(document.getElementById('cols').value)||3;
-  r=Math.min(20,Math.max(1,r)); c=Math.min(10,Math.max(1,c));
-  var html='<table><tr>'; var md='';
-  for(var j=0;j<c;j++){ html+='<th>列'+(j+1)+'</th>'; md+='| 列'+(j+1)+' '; }
-  html+='</tr>'; md+='|\n';
-  for(var j=0;j<c;j++){ md+='| --- '; } md+='|\n';
-  for(var i=0;i<r;i++){
-    html+='<tr>';
-    for(var j=0;j<c;j++){ html+='<td>内容</td>'; md+='| 内容 '; }
-    html+='</tr>'; md+='|\n';
+/* ---- 小恐龙跑酷：点击/空格跳，躲仙人掌 ---- */
+(function(){
+  var cv=document.getElementById('dinoCanvas');
+  var ctx=cv.getContext('2d');
+  var W=700, H=200, GROUND=160;
+  var dino={x:50, y:GROUND, w:44, h:44, vy:0, jumping:false, leg:0};
+  var obstacles=[], clouds=[], frame=0, score=0, best=0, state='ready', speed=6, overAt=0;
+  try{ best=parseInt(localStorage.getItem('dinoBest')||'0')||0; }catch(e){}
+  function drawScore(){
+    document.getElementById('dinoScore').textContent='分数：'+score;
+    document.getElementById('dinoBest').textContent='最高：'+best;
   }
-  html+='</table>';
-  document.getElementById('preview').innerHTML=html;
-  document.getElementById('md').value=md;
-}
-function copyMd(){
-  var t=document.getElementById('md');
-  t.select(); document.execCommand('copy');
-  alert('已复制 Markdown 表格');
-}
-gen();
+  function reset(){
+    obstacles=[]; clouds=[]; frame=0; score=0; speed=6;
+    dino.y=GROUND; dino.vy=0; dino.jumping=false;
+    drawScore();
+  }
+  function jump(){
+    if(state==='ready'){ state='run'; reset(); return; }
+    if(state==='over'){
+      if(Date.now()-overAt>300){ state='run'; reset(); }
+      return;
+    }
+    if(!dino.jumping){ dino.vy=-13; dino.jumping=true; }
+  }
+  window.dinoRestart=function(){ state='run'; reset(); };
+  cv.addEventListener('click', function(e){ e.preventDefault(); jump(); });
+  cv.addEventListener('touchstart', function(e){ e.preventDefault(); jump(); }, {passive:false});
+  document.addEventListener('keydown', function(e){
+    if(e.code==='Space' || e.code==='ArrowUp'){
+      var tag=(document.activeElement && document.activeElement.tagName)||'';
+      if(tag==='INPUT' || tag==='TEXTAREA') return;
+      e.preventDefault(); jump();
+    }
+  });
+  function spawnObstacle(){
+    var h=28+Math.floor(Math.random()*22);
+    obstacles.push({x:W, w:18+Math.floor(Math.random()*20), h:h});
+  }
+  function loop(){
+    requestAnimationFrame(loop);
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#999';
+    ctx.fillRect(0,GROUND+44,W,2);
+    if(state==='run'){
+      frame++; score++; speed=6+Math.floor(score/500);
+      if(frame%90===0) clouds.push({x:W, y:20+Math.random()*60});
+      if(obstacles.length===0 || W-obstacles[obstacles.length-1].x>140+Math.random()*120) spawnObstacle();
+      dino.leg=(frame%10<5)?0:1;
+      if(dino.jumping){
+        dino.vy+=0.7; dino.y+=dino.vy;
+        if(dino.y>=GROUND){ dino.y=GROUND; dino.jumping=false; dino.vy=0; }
+      }
+      obstacles.forEach(function(o){ o.x-=speed; });
+      obstacles=obstacles.filter(function(o){ return o.x+o.w>0; });
+      clouds.forEach(function(c){ c.x-=1; });
+      var hit=obstacles.some(function(o){
+        return dino.x+6<o.x+o.w && dino.x+dino.w-6>o.x && dino.y+6<GROUND+44 && dino.y+dino.h-2>GROUND+44-o.h;
+      });
+      if(hit){
+        state='over'; overAt=Date.now();
+        if(score>best){ best=score; try{ localStorage.setItem('dinoBest', best); }catch(e){} }
+      }
+      drawScore();
+    }
+    clouds.forEach(function(c){
+      ctx.fillStyle='#ddd';
+      ctx.fillRect(c.x,c.y,40,10); ctx.fillRect(c.x+10,c.y-8,24,10);
+    });
+    ctx.fillStyle='#555';
+    var dy=dino.y;
+    ctx.fillRect(dino.x,dy,44,44);
+    ctx.fillRect(dino.x+32,dy-12,28,20);
+    ctx.fillRect(dino.x+44,dy+8,16,8);
+    ctx.fillStyle='#fff'; ctx.fillRect(dino.x+48,dy-6,6,6);
+    ctx.fillStyle='#555';
+    var legOff=dino.jumping?0:(dino.leg?8:0);
+    ctx.fillRect(dino.x+8,dy+44,8,10+legOff);
+    ctx.fillRect(dino.x+26,dy+44,8,10-legOff);
+    ctx.fillStyle='#2e7d32';
+    obstacles.forEach(function(o){
+      var oy=GROUND+44-o.h;
+      ctx.fillRect(o.x,oy,o.w,o.h);
+      ctx.fillRect(o.x-6,oy+10,6,8);
+      ctx.fillRect(o.x+o.w,oy+14,6,8);
+    });
+    ctx.fillStyle='#666'; ctx.font='16px sans-serif';
+    if(state==='ready') ctx.fillText('点一下画面或按空格开始', 250, 90);
+    if(state==='over') ctx.fillText('撞上啦！再点一下重开', 260, 90);
+  }
+  drawScore();
+  loop();
+})();
 
 /* ---- 点对点传输：PeerJS 信令 + WebRTC 直连，扫码进房，双向互传 ---- */
 var peer=null, conn=null, myCode='', myId='';
