@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>免费小工具站</title>
+<meta name="theme-color" content="#0969da">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
 body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:760px;margin:0 auto;padding:24px 16px;color:#222;line-height:1.7}
 h1{font-size:26px} h2{font-size:20px;margin-top:36px;border-top:1px solid #ddd;padding-top:16px}
@@ -29,6 +33,13 @@ progress{width:100%;height:18px}
 <body>
 <h1>🛠️ 免费小工具站</h1>
 <p>这是一个人人可访问的轻量网站：不用注册、不用登录，有网就能打开使用。所有工具都在你的浏览器里运行，不上传任何数据。</p>
+
+<div class="card" id="installCard">
+<h2>📲 装到手机桌面</h2>
+<p class="note">装好后像 App 一样从桌面打开，不用每次搜网址；断网也能玩小恐龙，传文件时仍需联网。</p>
+<button id="btnInstall">安装到桌面</button>
+<p id="installHelp" class="note"></p>
+</div>
 
 <div class="card">
 <h2>🦖 小恐龙跑酷 · 等传输时打发时间</h2>
@@ -333,6 +344,62 @@ async function sendFiles(){
   var room=params.get('room');
   if(room && /^\d{6}$/.test(room)){ startPeer(true, room); }
   else{ startPeer(false); }
+})();
+<script>
+/* ---- 装到桌面（PWA）：注册 Service Worker + 安装提示 ---- */
+(function(){
+  var btn = document.getElementById('btnInstall');
+  var help = document.getElementById('installHelp');
+  if (!btn) return;
+  function manualSteps(){
+    var ua = navigator.userAgent || '';
+    var isIOS = /iPhone|iPad|iPod/.test(ua);
+    if (isIOS) {
+      help.textContent = '苹果手机请用 Safari 打开本站，点底部分享按钮，再选“添加到主屏幕”即可。';
+    } else {
+      help.textContent = '安卓 Chrome 请点右上角 ⋮ 菜单，再选“添加到主屏幕”或“安装应用”即可。';
+    }
+  }
+  if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
+    btn.disabled = true;
+    btn.textContent = '已装到桌面';
+    help.textContent = '你现在就是从桌面图标打开的本站。';
+    return;
+  }
+  var deferred = null;
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    deferred = e;
+    btn.disabled = false;
+    help.textContent = '可以一键安装了，点上面的按钮即可。';
+  });
+  window.addEventListener('appinstalled', function () {
+    deferred = null;
+    btn.disabled = true;
+    btn.textContent = '已装到桌面';
+    help.textContent = '安装成功，桌面上已经有本站图标了。';
+  });
+  btn.addEventListener('click', function () {
+    if (deferred) {
+      deferred.prompt();
+      deferred.userChoice.then(function (choice) {
+        if (choice && choice.outcome === 'accepted') {
+          btn.disabled = true;
+          btn.textContent = '已装到桌面';
+        }
+        deferred = null;
+      });
+    } else {
+      manualSteps();
+    }
+  });
+  // 还没触发安装提示时，先给一句通用说明，不误导
+  help.textContent = '浏览器支持安装时，这里会出现一键安装；否则按下面步骤手动添加。';
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () { /* 离线缓存不可用不影响传文件 */ });
+    });
+  }
 })();
 </script>
 </body>
