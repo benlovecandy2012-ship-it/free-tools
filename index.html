@@ -19,6 +19,9 @@ textarea{width:100%;min-height:140px;box-sizing:border-box;padding:10px;font-siz
 table{border-collapse:collapse;margin-top:12px} td,th{border:1px solid #999;padding:6px 12px}
 .note{color:#666;font-size:14px}
 #dinoCanvas{width:100%;max-width:700px;height:auto;display:block;background:#fff;border:1px solid #ddd;border-radius:8px;cursor:pointer;touch-action:manipulation}
+#flappyCanvas{width:100%;max-width:700px;height:auto;display:block;background:#8ecdf0;border:1px solid #ddd;border-radius:8px;cursor:pointer;touch-action:manipulation}
+#genQrcode{margin:12px 0}
+#genQrcode img,#genQrcode canvas{display:block}
 .status{font-weight:bold;color:#0969da}
 progress{width:100%;height:18px}
 #roomCode{font-size:28px;letter-spacing:4px;font-weight:bold}
@@ -76,6 +79,29 @@ progress{width:100%;height:18px}
 <p id="p2pProgressText" class="note"></p>
 <div id="downloads" class="dl"></div>
 <p class="note">大文件说明：支持流式落盘的浏览器（Chrome、Edge 等）会边收边写进你选的保存位置，不用先把整个文件憋在内存里；不支持流式落盘的浏览器会收完再给下载链接，超大文件请优先用 Chrome/Edge 收。速度取决于两端带宽，不限速。</p>
+</div>
+
+<div class="card" id="qrCard">
+<h2>🔲 二维码生成器</h2>
+<p class="note">内容只在你的浏览器里生成，不上传到任何地方。</p>
+<p><label><input type="radio" name="qrMode" value="text" checked> 文字 / 链接</label>　<label><input type="radio" name="qrMode" value="wifi"> WiFi</label></p>
+<div id="qrTextBox"><input id="qrText" placeholder="输入文字或链接，例如 https://..." style="width:100%;box-sizing:border-box"></div>
+<div id="qrWifiBox" style="display:none">
+<p><input id="wifiSsid" placeholder="WiFi 名称（SSID）" style="width:100%;box-sizing:border-box"></p>
+<p><input id="wifiPass" placeholder="WiFi 密码，无密码可留空" style="width:100%;box-sizing:border-box"></p>
+<p><label>加密方式 <select id="wifiEnc"><option value="WPA">WPA/WPA2</option><option value="WEP">WEP</option><option value="nopass">无密码</option></select></label>　<label><input type="checkbox" id="wifiHidden"> 隐藏网络</label></p>
+</div>
+<button onclick="genQR()">生成二维码</button> <button onclick="downloadQR()">下载二维码图片</button>
+<div id="genQrcode"></div>
+<p id="qrTip" class="note"></p>
+</div>
+
+<div class="card">
+<h2>🐤 Flappy Bird · 点画面拍翅膀</h2>
+<p class="note">点一下画面小鸟就拍一下翅膀，穿过水管得分，撞上就结束；最高分只存在你自己这台设备上。</p>
+<canvas id="flappyCanvas" width="700" height="360"></canvas>
+<p><span id="flappyScore" class="status">分数：0</span>　<span id="flappyBest" class="note"></span>　<button onclick="flappyRestart()">开始 / 再来一局</button></p>
+<p class="note">电脑和手机都是点画面拍翅膀。</p>
 </div>
 
 <p class="note">本站托管于 GitHub Pages，完全免费。想加新工具，告诉站长一声即可。</p>
@@ -345,6 +371,7 @@ async function sendFiles(){
   if(room && /^\d{6}$/.test(room)){ startPeer(true, room); }
   else{ startPeer(false); }
 })();
+</script>
 <script>
 /* ---- 装到桌面（PWA）：注册 Service Worker + 安装提示 ---- */
 (function(){
@@ -400,6 +427,149 @@ async function sendFiles(){
       navigator.serviceWorker.register('sw.js').catch(function () { /* 离线缓存不可用不影响传文件 */ });
     });
   }
+})();
+</script>
+<script>
+/* ---- 二维码生成器：复用页面已加载的 qrcodejs，文字/链接/WiFi ---- */
+function escWifi(s){ return s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/:/g, '\\:').replace(/"/g, '\\"'); }
+function qrPayload(){
+  var mode = (document.querySelector('input[name="qrMode"]:checked') || {}).value || 'text';
+  if (mode === 'wifi') {
+    var ssid = document.getElementById('wifiSsid').value.trim();
+    var pass = document.getElementById('wifiPass').value;
+    var enc = document.getElementById('wifiEnc').value;
+    var hidden = document.getElementById('wifiHidden').checked;
+    if (!ssid) return '';
+    if (enc === 'nopass') pass = '';
+    return 'WIFI:T:' + enc + ';S:' + escWifi(ssid) + ';P:' + escWifi(pass) + ';H:' + (hidden ? 'true' : 'false') + ';;';
+  }
+  return document.getElementById('qrText').value.trim();
+}
+function genQR(){
+  var payload = qrPayload();
+  var box = document.getElementById('genQrcode');
+  var tip = document.getElementById('qrTip');
+  if (!payload) { alert('请先输入内容：文字/链接，或 WiFi 名称'); return; }
+  if (!window.QRCode) { tip.textContent = '二维码库加载失败，请检查网络后刷新页面重试。'; return; }
+  box.innerHTML = '';
+  new QRCode(box, { text: payload, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+  var mode = (document.querySelector('input[name="qrMode"]:checked') || {}).value || 'text';
+  tip.textContent = mode === 'wifi' ? '已生成：手机相机扫码即可加入该 WiFi（部分手机需在 WLAN 设置里扫码）。' : '已生成：手机相机扫码即可打开链接或复制文字。';
+}
+function downloadQR(){
+  var box = document.getElementById('genQrcode');
+  var canvas = box.querySelector('canvas');
+  var img = box.querySelector('img');
+  var url = '';
+  if (canvas) { try { url = canvas.toDataURL('image/png'); } catch (e) {} }
+  if (!url && img && img.src) url = img.src;
+  if (!url) { alert('请先点“生成二维码”，或长按二维码图片直接保存。'); return; }
+  var a = document.createElement('a');
+  a.href = url; a.download = 'qrcode.png';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+(function(){
+  var radios = document.querySelectorAll('input[name="qrMode"]');
+  for (var i = 0; i < radios.length; i++) {
+    radios[i].addEventListener('change', function(){
+      var mode = (document.querySelector('input[name="qrMode"]:checked') || {}).value || 'text';
+      document.getElementById('qrTextBox').style.display = mode === 'wifi' ? 'none' : 'block';
+      document.getElementById('qrWifiBox').style.display = mode === 'wifi' ? 'block' : 'none';
+    });
+  }
+})();
+
+/* ---- Flappy Bird：点画面拍翅膀，穿水管得分 ---- */
+(function(){
+  var cv = document.getElementById('flappyCanvas');
+  if (!cv) return;
+  var ctx = cv.getContext('2d');
+  var W = 700, H = 360, GROUND = H - 36;
+  var SPEED = 3, GAP = 140, PW = 72, SPACING = 260;
+  var bird = { x: 130, y: 170, r: 15, vy: 0 };
+  var pipes = [], frame = 0, score = 0, best = 0, state = 'ready', overAt = 0;
+  try { best = parseInt(localStorage.getItem('flappyBest') || '0') || 0; } catch (e) {}
+  function drawScore(){
+    document.getElementById('flappyScore').textContent = '分数：' + score;
+    document.getElementById('flappyBest').textContent = '最高：' + best;
+  }
+  function reset(){
+    pipes = []; frame = 0; score = 0;
+    bird.y = 170; bird.vy = 0;
+    drawScore();
+  }
+  function flap(){
+    if (state === 'ready') { state = 'run'; reset(); bird.vy = -8; return; }
+    if (state === 'over') {
+      if (Date.now() - overAt > 300) { state = 'run'; reset(); bird.vy = -8; }
+      return;
+    }
+    bird.vy = -8;
+  }
+  window.flappyRestart = function(){ state = 'run'; reset(); bird.vy = -8; };
+  cv.addEventListener('click', function(e){ e.preventDefault(); flap(); });
+  cv.addEventListener('touchstart', function(e){ e.preventDefault(); flap(); }, { passive: false });
+  function spawnPipe(){
+    var maxTop = GROUND - GAP - 60;
+    var top = 40 + Math.floor(Math.random() * Math.max(1, maxTop - 40));
+    pipes.push({ x: W, top: top, passed: false });
+  }
+  function loop(){
+    requestAnimationFrame(loop);
+    ctx.fillStyle = '#8ecdf0';
+    ctx.fillRect(0, 0, W, H);
+    if (state === 'run') {
+      frame++;
+      bird.vy += 0.5; bird.y += bird.vy;
+      if (pipes.length === 0 || W - pipes[pipes.length - 1].x >= SPACING) spawnPipe();
+      pipes.forEach(function(p){ p.x -= SPEED; });
+      pipes = pipes.filter(function(p){ return p.x + PW > 0; });
+      pipes.forEach(function(p){
+        if (!p.passed && p.x + PW < bird.x - bird.r) { p.passed = true; score++; drawScore(); }
+      });
+      var hit = bird.y - bird.r < 0 || bird.y + bird.r > GROUND;
+      if (!hit) {
+        hit = pipes.some(function(p){
+          var bottom = p.top + GAP;
+          var inX = bird.x + bird.r - 2 > p.x && bird.x - bird.r + 2 < p.x + PW;
+          return inX && (bird.y - bird.r + 2 < p.top || bird.y + bird.r - 2 > bottom);
+        });
+      }
+      if (hit) {
+        state = 'over'; overAt = Date.now();
+        if (score > best) { best = score; try { localStorage.setItem('flappyBest', best); } catch (e) {} }
+        drawScore();
+      }
+    }
+    ctx.fillStyle = '#2e9e4f';
+    pipes.forEach(function(p){
+      var bottom = p.top + GAP;
+      ctx.fillRect(p.x, 0, PW, p.top);
+      ctx.fillRect(p.x - 3, p.top - 24, PW + 6, 24);
+      ctx.fillRect(p.x, bottom, PW, GROUND - bottom);
+      ctx.fillRect(p.x - 3, bottom, PW + 6, 24);
+    });
+    ctx.fillStyle = '#e8d9a0';
+    ctx.fillRect(0, GROUND, W, H - GROUND);
+    ctx.fillStyle = '#f7c948';
+    ctx.beginPath(); ctx.arc(bird.x, bird.y, bird.r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(bird.x + 5, bird.y - 4, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(bird.x + 6, bird.y - 4, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#e8590c';
+    ctx.beginPath();
+    ctx.moveTo(bird.x + bird.r - 2, bird.y);
+    ctx.lineTo(bird.x + bird.r + 12, bird.y + 4);
+    ctx.lineTo(bird.x + bird.r - 2, bird.y + 8);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#333'; ctx.font = '20px sans-serif'; ctx.textAlign = 'center';
+    if (state === 'ready') ctx.fillText('点一下画面开始，点一下拍一下翅膀', W / 2, 90);
+    if (state === 'over') ctx.fillText('撞上啦！点一下画面或按“开始”再来一局', W / 2, 90);
+    ctx.textAlign = 'left';
+  }
+  drawScore();
+  loop();
 })();
 </script>
 </body>
